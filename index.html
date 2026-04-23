@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>給料計算アプリ</title>
+
+  <style>
+    body { font-family: sans-serif; }
+
+    table { border-collapse: collapse; }
+
+    td, th {
+      width: 40px;
+      height: 40px;
+      text-align: center;
+      border: 1px solid #ccc;
+    }
+
+    td { cursor: pointer; }
+
+    td:hover { background-color: lightblue; }
+
+    .saved { background-color: lightgreen; }
+
+    button { margin: 2px; }
+  </style>
+</head>
+
+<body onload="initCalendar()">
+
+  <h2>給料計算</h2>
+
+  <button onclick="prevMonth()">←</button>
+  <span id="monthLabel"></span>
+  <button onclick="nextMonth()">→</button>
+
+  <div id="calendar"></div><br>
+
+  <p id="selectedDateLabel"></p>
+
+  時給: <input id="wage" type="number"><br><br>
+
+  出勤: <input id="start" type="time"><br>
+  休憩開始: <input id="breakStart" type="time"><br>
+  休憩終了: <input id="breakEnd" type="time"><br>
+  退勤: <input id="end" type="time"><br><br>
+
+  <button onclick="calc()">計算</button>
+  <button onclick="save()">保存</button>
+  <button onclick="deleteData()">削除</button>
+  <button onclick="monthly()">月合計</button>
+  <button onclick="yearly()">年合計</button>
+
+  <p id="monthTotal"></p>
+  <p id="result"></p>
+
+  <script>
+    let currentYear;
+    let currentMonth;
+    let selectedDate = ""; // 🔥これが重要
+
+    function initCalendar() {
+      const now = new Date();
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth();
+      generateCalendar();
+    }
+
+    function prevMonth() {
+      currentMonth--;
+      if (currentMonth < 0) {
+        currentMonth = 11;
+        currentYear--;
+      }
+      generateCalendar();
+    }
+
+    function nextMonth() {
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+      generateCalendar();
+    }
+
+    function generateCalendar() {
+      const calendar = document.getElementById("calendar");
+      const label = document.getElementById("monthLabel");
+
+      label.innerText = currentYear + "年 " + (currentMonth + 1) + "月";
+
+      const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+      const lastDate = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+      const data = JSON.parse(localStorage.getItem("salaryData")) || {};
+
+      let html = "<table><tr>";
+      const days = ["日","月","火","水","木","金","土"];
+      days.forEach(d => html += "<th>" + d + "</th>");
+      html += "</tr><tr>";
+
+      for (let i = 0; i < firstDay; i++) {
+        html += "<td></td>";
+      }
+
+      for (let d = 1; d <= lastDate; d++) {
+        const dateStr = currentYear + "-" +
+          String(currentMonth+1).padStart(2,'0') + "-" +
+          String(d).padStart(2,'0');
+
+        let className = data[dateStr] ? "saved" : "";
+
+        html += "<td class='" + className + "' onclick=\"selectDate('" + dateStr + "')\">" + d + "</td>";
+
+        if ((firstDay + d) % 7 === 0) {
+          html += "</tr><tr>";
+        }
+      }
+
+      html += "</tr></table>";
+      calendar.innerHTML = html;
+    }
+
+    function selectDate(date) {
+      selectedDate = date;
+
+      document.getElementById("selectedDateLabel").innerText =
+        "選択中: " + date;
+
+      let data = JSON.parse(localStorage.getItem("salaryData")) || {};
+
+      if (!data[date]) {
+        document.getElementById("wage").value = "";
+        document.getElementById("start").value = "";
+        document.getElementById("breakStart").value = "";
+        document.getElementById("breakEnd").value = "";
+        document.getElementById("end").value = "";
+        document.getElementById("result").innerText = "";
+        return;
+      }
+
+      let d = data[date];
+
+      document.getElementById("wage").value = d.wage;
+      document.getElementById("start").value = d.start;
+      document.getElementById("breakStart").value = d.breakStart;
+      document.getElementById("breakEnd").value = d.breakEnd;
+      document.getElementById("end").value = d.end;
+      document.getElementById("result").innerText =
+        "給料: " + d.money + "円";
+    }
+
+    function toMinutes(time) {
+      let parts = time.split(":");
+      return Number(parts[0]) * 60 + Number(parts[1]);
+    }
+
+    function calc() {
+      let wage = Number(document.getElementById("wage").value);
+
+      let start = document.getElementById("start").value;
+      let breakStart = document.getElementById("breakStart").value;
+      let breakEnd = document.getElementById("breakEnd").value;
+      let end = document.getElementById("end").value;
+
+      if (!start || !breakStart || !breakEnd || !end) {
+        document.getElementById("result").innerText = "全て入力してください";
+        return;
+      }
+
+      let startMin = toMinutes(start);
+      let breakStartMin = toMinutes(breakStart);
+      let breakEndMin = toMinutes(breakEnd);
+      let endMin = toMinutes(end);
+
+      let workTime = (endMin - startMin) - (breakEndMin - breakStartMin);
+
+      let nightStart = 22 * 60;
+      let nightTime = Math.max(endMin - Math.max(startMin, nightStart), 0);
+
+      let dayWorkTime = workTime - nightTime;
+
+      let normalTime = Math.min(dayWorkTime, 480);
+      let overtime = Math.max(dayWorkTime - 480, 0);
+
+      let total =
+        (normalTime * wage) +
+        (overtime * wage * 1.25) +
+        (nightTime * wage * 1.25);
+
+      document.getElementById("result").innerText =
+        "給料: " + Math.floor(total / 60) + "円";
+    }
+
+    function save() {
+      let date = selectedDate;
+
+      let resultText = document.getElementById("result").innerText;
+
+      if (!date || !resultText.includes("給料")) {
+        alert("日付と計算を先にしてください");
+        return;
+      }
+
+      let money = resultText.replace("給料: ", "").replace("円", "");
+
+      let data = JSON.parse(localStorage.getItem("salaryData")) || {};
+
+      data[date] = {
+        wage: document.getElementById("wage").value,
+        start: document.getElementById("start").value,
+        breakStart: document.getElementById("breakStart").value,
+        breakEnd: document.getElementById("breakEnd").value,
+        end: document.getElementById("end").value,
+        money: Number(money)
+      };
+
+      localStorage.setItem("salaryData", JSON.stringify(data));
+
+      alert("保存しました");
+
+      generateCalendar();
+    }
+
+    function deleteData() {
+      if (!selectedDate) {
+        alert("日付を選択してください");
+        return;
+      }
+
+      let data = JSON.parse(localStorage.getItem("salaryData")) || {};
+
+      if (!data[selectedDate]) {
+        alert("この日のデータはありません");
+        return;
+      }
+
+      if (!confirm("この日のデータを削除しますか？")) {
+        return;
+      }
+
+      delete data[selectedDate];
+
+      localStorage.setItem("salaryData", JSON.stringify(data));
+
+      alert("削除しました");
+
+      document.getElementById("wage").value = "";
+      document.getElementById("start").value = "";
+      document.getElementById("breakStart").value = "";
+      document.getElementById("breakEnd").value = "";
+      document.getElementById("end").value = "";
+      document.getElementById("result").innerText = "";
+
+      generateCalendar();
+    }
+
+    function monthly() {
+      let data = JSON.parse(localStorage.getItem("salaryData")) || {};
+      let date = selectedDate;
+
+      if (!date) {
+        alert("日付を選んでください");
+        return;
+      }
+
+      let month = date.slice(0,7);
+      let total = 0;
+
+      for (let key in data) {
+        if (key.startsWith(month)) {
+          total += data[key].money;
+        }
+      }
+
+      document.getElementById("monthTotal").innerText =
+        month + "月 合計: " + total + "円";
+    }
+
+    function yearly() {
+      let data = JSON.parse(localStorage.getItem("salaryData")) || {};
+      let date = selectedDate;
+
+      if (!date) {
+        alert("日付を選んでください");
+        return;
+      }
+
+      let year = date.slice(0,4);
+      let total = 0;
+
+      for (let key in data) {
+        if (key.startsWith(year)) {
+          total += data[key].money;
+        }
+      }
+
+      document.getElementById("monthTotal").innerText =
+        year + "年 合計: " + total + "円";
+    }
+  </script>
+
+</body>
+</html>
